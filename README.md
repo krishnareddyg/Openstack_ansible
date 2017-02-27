@@ -34,5 +34,5 @@ What is an acceptable load average threshold for the host?
 
 To deploy bastion(jump server) execute
 
-ansible-playbook deploy_JumBox.yaml
+ansible-playbook deploy_on_JumBox.yaml
 Thsi will remove external ssh access for ldap and create a new server where user can use to connect to the ldap server
