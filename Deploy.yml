@@ -1,0 +1,114 @@
+---
+
+- name: Deploy on OpenStack
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Adding private SG
+      os_security_group:
+       auth:
+         auth_url: http://8.43.86.2:5000/v2.0
+         username: facebook972609636203996
+         password: oJE6E8WqCsbhTrvl
+         project_name: facebook972609636203996
+       state: present
+       name: private
+       description: security group for ldap server
+    - name: Adding private SG rules
+      os_security_group_rule:
+       auth:
+         auth_url: http://8.43.86.2:5000/v2.0
+         username: facebook972609636203996
+         password: oJE6E8WqCsbhTrvl
+         project_name: facebook972609636203996
+       security_group: private
+       protocol: tcp
+       port_range_min: 22
+       port_range_max: 22
+       remote_ip_prefix: 0.0.0.0/0
+    - name: Deploy ldap instance
+      os_server:
+       state: present
+       auth:
+         auth_url: http://8.43.86.2:5000/v2.0
+         username: facebook972609636203996
+         password: oJE6E8WqCsbhTrvl
+         project_name: facebook972609636203996
+       name: ldapserver
+       image: CentOS7
+       key_name: root
+       wait: yes
+       flavor: m1.smaller
+       auto_floating_ip: yes
+       network: private
+       security_groups: private
+       meta:
+        hostname: ldapserver.localdomain
+      register: ldapserver
+
+    - name: Wait for SSH on the Instance
+      command: >
+       ssh -oBatchMode=yes -i root -oStrictHostKeyChecking=no
+       centos@{{ldapserver.server.public_v4}} true
+      register: result
+      until: result|success
+      retries: 30
+      delay: 10
+
+    - name: Add CentOS Instance to Inventory
+      add_host: name=ldapserver groups=ldapservers
+              ansible_ssh_host={{ ldapserver.server.public_v4 }}
+    - name: Add ip to ssh 
+      local_action: copy content={{ldapserver.server.public_v4}} dest=/root/ansible/ldapip
+
+- hosts: ldapservers
+  remote_user: centos
+  become: true
+  tasks:
+  - name: copy ssh key to bastion
+    copy:
+       src: root
+       dest: /home/centos/root
+       owner: centos
+       group: centos
+       mode: 0600
+  - name: add group
+    group: name=techops_dba state=present system=yes
+  - name: add group to sudoers
+    lineinfile:
+      dest: '/etc/sudoers'
+      state: present
+      line: '%techops_dba  ALL=(ALL)       ALL'
+  - name: add group to access.conf
+    lineinfile:
+      dest: '/etc/security/access.conf'
+      state: present
+      line: '+ : techops_dba : ALL'
+  - name: install ntp
+    yum:
+     name: ntp
+     state: present
+  - name: start ntpd
+    service:
+     name: ntpd
+     state: started
+  - name: test ldap is working
+    command: systemctl status slapd
+    ignore_errors: yes
+    changed_when: false
+    failed_when: "'Active: inactive' in ldap_status.stdout"
+    register: ldap_status
+  
+  - name: test group is added
+    command: cat /etc/group | grep -i techops_dba | wc -l
+    ignore_errors: yes
+    changed_when: false
+    failed_when: "group_status.stdout = 1"
+    register: group_status
+
+  roles:
+    - name: install openldap server
+      role: openldap_server
+      openldap_server_domain_name: example.com
+      openldap_server_rootpw: passme
+      openldap_server_enable_ssl: false
