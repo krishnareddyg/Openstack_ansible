@@ -1,3 +1,4 @@
+#testconfig
 configmap:
   cdx:
     name: cdx-account-processor-create
